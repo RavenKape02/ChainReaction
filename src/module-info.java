@@ -1,6 +1,5 @@
 module ChainReaction {
-	requires javafx.controls;
-    requires javafx.fxml;
-    
+    requires javafx.controls;
+
     exports app;
 }
