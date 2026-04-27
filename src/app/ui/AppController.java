@@ -684,26 +684,41 @@ public final class AppController {
 
             animationRunning = true;
             boardGrid.setDisable(true);
-            statusLabel.setText("Resolving chain reaction...");
 
             List<BoardSnapshot> frames = result.getAnimationFrames();
+
+            // Show the orb placement immediately
             renderSnapshot(frames.get(0));
 
+            // If no explosion happens, finish normally
             if (frames.size() == 1) {
                 finishMove(result);
                 return;
             }
 
-            SequentialTransition sequence = new SequentialTransition();
-            for (int index = 1; index < frames.size(); index++) {
-                BoardSnapshot frame = frames.get(index);
-                PauseTransition pause = new PauseTransition(Duration.millis(150));
-                pause.setOnFinished(event -> renderSnapshot(frame));
-                sequence.getChildren().add(pause);
-            }
+            statusLabel.setText("Orb placed. Explosion in 3 seconds...");
 
-            sequence.setOnFinished(event -> finishMove(result));
-            sequence.play();
+            // Wait 0.5 seconds before resolving the explosion
+            PauseTransition delayBeforeExplosion = new PauseTransition(Duration.seconds(0.5));
+
+            delayBeforeExplosion.setOnFinished(event -> {
+                statusLabel.setText("Resolving chain reaction...");
+
+                SequentialTransition sequence = new SequentialTransition();
+
+                for (int index = 1; index < frames.size(); index++) {
+                    BoardSnapshot frame = frames.get(index);
+
+                    PauseTransition pause = new PauseTransition(Duration.millis(70));                    pause.setOnFinished(e -> renderSnapshot(frame));
+
+                    sequence.getChildren().add(pause);
+                }
+
+                sequence.setOnFinished(e -> finishMove(result));
+                sequence.play();
+            });
+
+            delayBeforeExplosion.play();
         }
 
         private void finishMove(MoveResult result) {
