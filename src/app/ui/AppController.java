@@ -23,6 +23,7 @@ import javafx.scene.control.Button;
 import javafx.scene.control.ColorPicker;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.ListCell;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.FlowPane;
@@ -128,11 +129,13 @@ public final class AppController {
         }
         playerCountBox.setValue(currentSettings.getPlayerCount());
         styleComboBox(playerCountBox);
+        playerCountBox.setButtonCell(createWhiteButtonCell());
 
         ComboBox<BoardOption> boardSizeBox = new ComboBox<>();
         boardSizeBox.getItems().addAll(boardOptions);
         boardSizeBox.setValue(findBoardOption(currentSettings.getRows(), currentSettings.getColumns()));
         styleComboBox(boardSizeBox);
+        boardSizeBox.setButtonCell(createWhiteButtonCell());
 
         // timer settings
         ComboBox<Integer> timerComboBox = new ComboBox<>();
@@ -156,16 +159,19 @@ public final class AppController {
         });
         
         // display "No Timer" for 0 value on main menu
-        timerComboBox.setButtonCell(new javafx.scene.control.ListCell<Integer>() {
+        timerComboBox.setButtonCell(new ListCell<Integer>() {
             @Override
             protected void updateItem(Integer item, boolean empty) {
                 super.updateItem(item, empty);
                 if (empty || item == null) {
                     setText(null);
+                    setStyle("");
                 } else if (item == 0) {
                     setText("No Timer");
+                    setStyle("-fx-text-fill: white;");
                 } else {
                     setText(item + "s");
+                    setStyle("-fx-text-fill: white;");
                 }
             }
         });
@@ -389,6 +395,22 @@ public final class AppController {
         Label label = new Label(text);
         label.setStyle("-fx-text-fill: rgba(236,244,255,0.8); -fx-font-size: 14px; -fx-font-weight: 600;");
         return label;
+    }
+
+    private <T> ListCell<T> createWhiteButtonCell() {
+        return new ListCell<>() {
+            @Override
+            protected void updateItem(T item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setText(null);
+                    setStyle("");
+                } else {
+                    setText(item.toString());
+                    setStyle("-fx-text-fill: white;");
+                }
+            }
+        };
     }
 
     private Button createPrimaryButton(String text) {
