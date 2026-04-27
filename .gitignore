@@ -1,4 +1,5 @@
 # Java / Eclipse
+.metadata/
 bin/
 out/
 target/
@@ -8,7 +9,6 @@ target/
 .project
 .classpath
 .settings/
-.metadata/
 
 # OS
 .DS_Store
