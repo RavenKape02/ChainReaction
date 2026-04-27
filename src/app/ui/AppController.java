@@ -23,6 +23,7 @@ import javafx.scene.control.Button;
 import javafx.scene.control.ColorPicker;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.ListCell;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.FlowPane;
@@ -36,6 +37,8 @@ import javafx.scene.paint.Color;
 import javafx.scene.shape.Circle;
 import javafx.stage.Stage;
 import javafx.util.Duration;
+import javafx.animation.Animation;
+import javafx.animation.AnimationTimer;
 
 public final class AppController {
 
@@ -88,7 +91,7 @@ public final class AppController {
         this.boardOptions = new ArrayList<>();
         boardOptions.add(new BoardOption("9 x 6", 9, 6));
         boardOptions.add(new BoardOption("15 x 10", 15, 10));
-        this.currentSettings = new GameSettings(2, 9, 6);
+        this.currentSettings = new GameSettings(2, 9, 6, 15);
     }
 
     public void show() {
@@ -126,11 +129,52 @@ public final class AppController {
         }
         playerCountBox.setValue(currentSettings.getPlayerCount());
         styleComboBox(playerCountBox);
+        playerCountBox.setButtonCell(createWhiteButtonCell());
 
         ComboBox<BoardOption> boardSizeBox = new ComboBox<>();
         boardSizeBox.getItems().addAll(boardOptions);
         boardSizeBox.setValue(findBoardOption(currentSettings.getRows(), currentSettings.getColumns()));
         styleComboBox(boardSizeBox);
+        boardSizeBox.setButtonCell(createWhiteButtonCell());
+
+        // timer settings
+        ComboBox<Integer> timerComboBox = new ComboBox<>();
+        timerComboBox.getItems().addAll(0, 10, 15, 20, 30, 45, 60);
+        timerComboBox.setValue(currentSettings.getTimeLimitSeconds());
+        styleComboBox(timerComboBox);
+        
+        // display "No Timer" for 0 value on dropdown
+        timerComboBox.setCellFactory(lv -> new javafx.scene.control.ListCell<Integer>() {
+            @Override
+            protected void updateItem(Integer item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setText(null);
+                } else if (item == 0) {
+                    setText("No Timer");
+                } else {
+                    setText(item + "s");
+                }
+            }
+        });
+        
+        // display "No Timer" for 0 value on main menu
+        timerComboBox.setButtonCell(new ListCell<Integer>() {
+            @Override
+            protected void updateItem(Integer item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setText(null);
+                    setStyle("");
+                } else if (item == 0) {
+                    setText("No Timer");
+                    setStyle("-fx-text-fill: white;");
+                } else {
+                    setText(item + "s");
+                    setStyle("-fx-text-fill: white;");
+                }
+            }
+        });
 
         FlowPane playerPreview = new FlowPane();
         playerPreview.setHgap(10);
@@ -140,7 +184,8 @@ public final class AppController {
             currentSettings = new GameSettings(
                 playerCountBox.getValue(),
                 boardSizeBox.getValue().rows(),
-                boardSizeBox.getValue().columns()
+                boardSizeBox.getValue().columns(),
+                timerComboBox.getValue()
             );
 
             playerPreview.getChildren().clear();
@@ -151,6 +196,7 @@ public final class AppController {
 
         playerCountBox.setOnAction(event -> refreshPreview.run());
         boardSizeBox.setOnAction(event -> refreshPreview.run());
+        timerComboBox.setOnAction(event -> refreshPreview.run());
         refreshPreview.run();
 
         GridPane configurationGrid = new GridPane();
@@ -159,10 +205,13 @@ public final class AppController {
 
         Label playersLabel = createSectionLabel("Players");
         Label boardLabel = createSectionLabel("Board");
+        Label timerLabel = createSectionLabel("Turn Timer");
         configurationGrid.add(playersLabel, 0, 0);
         configurationGrid.add(boardLabel, 1, 0);
         configurationGrid.add(playerCountBox, 0, 1);
         configurationGrid.add(boardSizeBox, 1, 1);
+        configurationGrid.add(timerLabel, 2, 0);
+        configurationGrid.add(timerComboBox, 2, 1);
 
         VBox infoCard = new VBox(10);
         infoCard.setPadding(new Insets(18));
@@ -348,6 +397,22 @@ public final class AppController {
         return label;
     }
 
+    private <T> ListCell<T> createWhiteButtonCell() {
+        return new ListCell<>() {
+            @Override
+            protected void updateItem(T item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setText(null);
+                    setStyle("");
+                } else {
+                    setText(item.toString());
+                    setStyle("-fx-text-fill: white;");
+                }
+            }
+        };
+    }
+
     private Button createPrimaryButton(String text) {
         Button button = new Button(text);
         button.setStyle(PRIMARY_BUTTON_STYLE);
@@ -462,7 +527,7 @@ public final class AppController {
             pulse.setToX(1.06);
             pulse.setToY(1.06);
             pulse.setAutoReverse(true);
-            pulse.setCycleCount(ScaleTransition.INDEFINITE);
+            pulse.setCycleCount(Animation.INDEFINITE);
             pulse.setInterpolator(Interpolator.EASE_BOTH);
             pulse.play();
         }
@@ -526,6 +591,10 @@ public final class AppController {
         private final Label winnerBanner = new Label();
         private final FlowPane playerStrip = new FlowPane();
         private final GridPane boardGrid = new GridPane();
+        private final Label timerLabel = new Label();
+
+        // timer update mechanism
+        private javafx.animation.AnimationTimer timerDisplayUpdater;
 
         private boolean animationRunning;
         private int lastMoveRow = -1;
@@ -549,6 +618,9 @@ public final class AppController {
 
             renderSnapshot(engine.getSnapshot());
             statusLabel.setText("Select a cell that is empty or already yours.");
+            
+            // setup timer display updater
+            setupTimerDisplayUpdater();
         }
 
         private Parent root() {
@@ -596,6 +668,17 @@ public final class AppController {
                     + "-fx-font-weight: 800;"
             );
 
+            // timer label
+            timerLabel.setStyle(
+                "-fx-background-color: rgba(255,255,255,0.07);"
+                    + "-fx-background-radius: 999px;"
+                    + "-fx-padding: 10 16 10 16;"
+                    + "-fx-text-fill: white;"
+                    + "-fx-font-size: 14px;"
+                    + "-fx-font-weight: 800;"
+            );
+            timerLabel.setText(engine.getSettings().getTimeLimitSeconds() <= 0 ? "∞" : engine.getSettings().getTimeLimitSeconds() + "s");
+
             winnerBanner.setVisible(false);
             winnerBanner.setStyle(
                 "-fx-background-color: linear-gradient(to right, #89f0c2, #63d7ff);"
@@ -619,7 +702,7 @@ public final class AppController {
             playerStrip.setHgap(10);
             playerStrip.setVgap(10);
 
-            statusRow.getChildren().addAll(turnLabel, moveCountLabel, winnerBanner);
+            statusRow.getChildren().addAll(turnLabel, moveCountLabel, timerLabel, winnerBanner);
             header.getChildren().addAll(topRow, statusRow, playerStrip);
             return header;
         }
@@ -686,10 +769,16 @@ public final class AppController {
             boardGrid.setDisable(true);
             statusLabel.setText("Resolving chain reaction...");
 
+            long animationStartNanos = System.nanoTime();
+
             List<BoardSnapshot> frames = result.getAnimationFrames();
             renderSnapshot(frames.get(0));
 
             if (frames.size() == 1) {
+                // still pause timer briefly even for single frame animation
+                long animationEndNanos = System.nanoTime();
+                javafx.util.Duration animationDuration = javafx.util.Duration.millis((animationEndNanos - animationStartNanos) / 1_000_000);
+                pauseTimerForAnimation(animationDuration);
                 finishMove(result);
                 return;
             }
@@ -702,7 +791,13 @@ public final class AppController {
                 sequence.getChildren().add(pause);
             }
 
-            sequence.setOnFinished(event -> finishMove(result));
+            sequence.setOnFinished(event -> {
+                // calculate duration and pause timer after animation ended
+                long animationEndNanos = System.nanoTime();
+                javafx.util.Duration animationDuration = javafx.util.Duration.millis((animationEndNanos - animationStartNanos) / 1_000_000);
+                pauseTimerForAnimation(animationDuration);
+                finishMove(result);
+            });
             sequence.play();
         }
 
@@ -766,6 +861,11 @@ public final class AppController {
             FadeTransition fadeIn = new FadeTransition(Duration.millis(350), overlay);
             fadeIn.setToValue(1.0);
             fadeIn.play();
+            
+            // stop timer updates when game ends
+            if (timerDisplayUpdater != null) {
+                timerDisplayUpdater.stop();
+            }
         }
 
         private void renderSnapshot(BoardSnapshot snapshot) {
@@ -817,6 +917,101 @@ public final class AppController {
                 }
             }
             return count;
+        }
+
+        // timer display updater
+        private void setupTimerDisplayUpdater() {
+            // stop any existing timer updater
+            if (timerDisplayUpdater != null) {
+                timerDisplayUpdater.stop();
+            }
+            
+            // do not start timer updater if timer is disabled
+            if (engine.getSettings().getTimeLimitSeconds() <= 0) {
+                return;
+            }
+            
+            timerDisplayUpdater = new AnimationTimer() {
+                private long lastUpdate = 0;
+                
+                @Override
+                public void handle(long now) {
+                    // update at most once per second
+                    if (now - lastUpdate >= 1_000_000_000) {
+                        lastUpdate = now;
+                        updateTimerDisplay();
+                    }
+                }
+            };
+            timerDisplayUpdater.start();
+        }
+        
+        private void updateTimerDisplay() {
+            // show ∞ and neutral style if timer is no time limit 
+            if (engine.getSettings().getTimeLimitSeconds() <= 0) {
+                timerLabel.setText("∞");
+                timerLabel.setStyle(
+                    "-fx-background-color: rgba(255,255,255,0.03);"
+                        + "-fx-background-radius: 999px;"
+                        + "-fx-padding: 10 16 10 16;"
+                        + "-fx-text-fill: rgba(255,255,255,0.35);"
+                        + "-fx-font-size: 14px;"
+                        + "-fx-font-weight: 800;"
+                );
+                return;
+            }
+            
+            int remainingSeconds = engine.getRemainingTimeSeconds();
+            
+            // update timer display
+            timerLabel.setText(remainingSeconds + "s");
+            
+            // change color based on remaining time
+            if (remainingSeconds <= 3) {
+                timerLabel.setStyle(
+                    "-fx-background-color: rgba(255,0,0,0.2);"
+                        + "-fx-background-radius: 999px;"
+                        + "-fx-padding: 10 16 10 16;"
+                        + "-fx-text-fill: #ff0000;"
+                        + "-fx-font-size: 14px;"
+                        + "-fx-font-weight: 800;"
+                );
+            } else if (remainingSeconds <= 5) {
+                timerLabel.setStyle(
+                    "-fx-background-color: rgba(255,165,0,0.2);"
+                        + "-fx-background-radius: 999px;"
+                        + "-fx-padding: 10 16 10 16;"
+                        + "-fx-text-fill: #ffa500;"
+                        + "-fx-font-size: 14px;"
+                        + "-fx-font-weight: 800;"
+                );
+            } else {
+                timerLabel.setStyle(
+                    "-fx-background-color: rgba(255,255,255,0.07);"
+                        + "-fx-background-radius: 999px;"
+                        + "-fx-padding: 10 16 10 16;"
+                        + "-fx-text-fill: white;"
+                        + "-fx-font-size: 14px;"
+                        + "-fx-font-weight: 800;"
+                );
+            }
+            
+            // check for timer expiration and handle turn skipping
+            if (engine.handleTimerExpiration()) {
+                statusLabel.setText("Time's up! Turn skipped.");
+                renderSnapshot(engine.getSnapshot());
+            }
+        }
+        
+        // call to pause timer during animations
+        private void pauseTimerForAnimation(javafx.util.Duration duration) {
+            // only pause if timer is enabled
+            if (engine.getSettings().getTimeLimitSeconds() <= 0) {
+                return;
+            }
+            // convert javafx Duration to java Duration
+            java.time.Duration javaDuration = java.time.Duration.ofMillis((long) duration.toMillis());
+            engine.pauseTimer(javaDuration);
         }
     }
 }
