@@ -1,4 +1,5 @@
 # Java / Eclipse
+.metadata/
 bin/
 out/
 target/

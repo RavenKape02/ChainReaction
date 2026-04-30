@@ -3,6 +3,8 @@ package app.logic;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
+import java.time.Instant;
+import java.time.Duration;
 
 import app.model.BoardCell;
 import app.model.BoardSnapshot;
@@ -19,6 +21,10 @@ public final class GameEngine {
     private int currentPlayerIndex;
     private int movesPlayed;
     private Integer winnerIndex;
+    
+    // timer fields
+    private Instant turnStartTime;
+    private boolean timerExpired;
 
     public GameEngine(GameSettings settings, List<PlayerProfile> players) {
         if (players.size() != settings.getPlayerCount()) {
@@ -29,11 +35,70 @@ public final class GameEngine {
         this.players = new ArrayList<>(players);
         this.board = new BoardCell[settings.getRows()][settings.getColumns()];
         this.eliminatedPlayers = new boolean[settings.getPlayerCount()];
+        
+        // initialize timer fields
+        this.turnStartTime = null;
+        this.timerExpired = false;
 
         for (int row = 0; row < settings.getRows(); row++) {
             for (int column = 0; column < settings.getColumns(); column++) {
                 board[row][column] = new BoardCell();
             }
+        }
+    }
+
+    // timer methods
+    public void startTurnTimer() {
+        if (settings.getTimeLimitSeconds() > 0) {
+            this.turnStartTime = Instant.now();
+            this.timerExpired = false;
+        }
+    }
+
+    public boolean isTimerExpired() {
+        if ((settings.getTimeLimitSeconds() <= 0) || (turnStartTime == null)) {
+            return false;
+        }
+        Duration elapsed = Duration.between(turnStartTime, Instant.now());
+        return elapsed.getSeconds() >= settings.getTimeLimitSeconds();
+    }
+
+    public int getRemainingTimeSeconds() {
+        if (settings.getTimeLimitSeconds() <= 0) {
+            return 0; // if no timer 
+        }
+        if (turnStartTime == null) {
+            return settings.getTimeLimitSeconds();
+        }
+        Duration elapsed = Duration.between(turnStartTime, Instant.now());
+        int remaining = settings.getTimeLimitSeconds() - (int) elapsed.getSeconds();
+        return Math.max(0, remaining);
+    }
+
+    public void resetTimer() {
+        this.turnStartTime = null;
+        this.timerExpired = false;
+    }
+    
+    // if the timer has expired advance to next player
+    public boolean handleTimerExpiration() {
+        if (isTimerExpired() && !timerExpired) {
+            this.timerExpired = true;
+            // advance to next player
+            if (winnerIndex == null) {
+                currentPlayerIndex = nextPlayerIndex(currentPlayerIndex);
+            }
+            // reset timer for next player
+            startTurnTimer();
+            return true;
+        }
+        return false;
+    }
+    
+    // pauses timer by given duration.
+    public void pauseTimer(Duration pauseDuration) {
+        if (turnStartTime != null && settings.getTimeLimitSeconds() > 0) {
+            this.turnStartTime = turnStartTime.plus(pauseDuration);
         }
     }
 
@@ -65,6 +130,10 @@ public final class GameEngine {
             return MoveResult.rejected("This match is already over. Start a new round from the header.");
         }
 
+        if (isTimerExpired()) {
+            return MoveResult.rejected("Time's up! Turn skipped due to timer expiration.");
+        }
+
         if (!isInsideBoard(row, column)) {
             return MoveResult.rejected("That move is outside the board.");
         }
@@ -73,6 +142,9 @@ public final class GameEngine {
         if (!selectedCell.isEmpty() && selectedCell.getOwnerIndex() != currentPlayerIndex) {
             return MoveResult.rejected("You can only place an orb in an empty cell or one you already control.");
         }
+
+        // reset timer at start of turn
+        startTurnTimer();
 
         int actingPlayerIndex = currentPlayerIndex;
         ArrayList<BoardSnapshot> animationFrames = new ArrayList<>();
