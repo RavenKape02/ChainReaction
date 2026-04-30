@@ -174,7 +174,7 @@ final class BoardCellView extends StackPane {
         orbGroup.setScaleX(0.3);
         orbGroup.setScaleY(0.3);
 
-        ScaleTransition pop = new ScaleTransition(Duration.millis(180), orbGroup);
+        ScaleTransition pop = new ScaleTransition(Duration.millis(100), orbGroup);
         pop.setToX(1.0);
         pop.setToY(1.0);
         pop.setInterpolator(Interpolator.SPLINE(0.175, 0.885, 0.32, 1.275));
@@ -193,14 +193,14 @@ final class BoardCellView extends StackPane {
 
         orbPane.getChildren().add(ring);
 
-        ScaleTransition expand = new ScaleTransition(Duration.millis(200), ring);
+        ScaleTransition expand = new ScaleTransition(Duration.millis(120), ring);
         expand.setFromX(0.5);
         expand.setFromY(0.5);
         expand.setToX(3.5);
         expand.setToY(3.5);
         expand.setInterpolator(Interpolator.EASE_OUT);
 
-        FadeTransition fade = new FadeTransition(Duration.millis(200), ring);
+        FadeTransition fade = new FadeTransition(Duration.millis(120), ring);
         fade.setFromValue(0.9);
         fade.setToValue(0.0);
 
@@ -216,7 +216,7 @@ final class BoardCellView extends StackPane {
 
         orbPane.getChildren().addFirst(flash);
 
-        FadeTransition ft = new FadeTransition(Duration.millis(200), flash);
+        FadeTransition ft = new FadeTransition(Duration.millis(120), flash);
         ft.setFromValue(0.4);
         ft.setToValue(0.0);
         ft.setOnFinished(event -> orbPane.getChildren().remove(flash));
