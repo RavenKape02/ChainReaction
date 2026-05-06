@@ -98,7 +98,7 @@ public final class AppController {
         scene = new Scene(buildMainMenu(), WINDOW_WIDTH, WINDOW_HEIGHT);
         stage.setTitle("Chain Reaction");
         stage.setMinWidth(980);
-        stage.setMinHeight(760);
+        stage.setMinHeight(820);
         stage.setScene(scene);
         stage.show();
     }
@@ -614,7 +614,15 @@ public final class AppController {
             gamePane.setCenter(buildBoardArea());
             gamePane.setBottom(buildFooter());
 
-            rootStack.getChildren().add(gamePane);
+            ScrollPane gameScroll = new ScrollPane(gamePane);
+            gameScroll.setFitToWidth(true);
+            gameScroll.setPannable(false);
+            gameScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+            gameScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+            gameScroll.setStyle("-fx-background-color: transparent;");
+            StackPane.setAlignment(gameScroll, Pos.TOP_CENTER);
+
+            rootStack.getChildren().add(gameScroll);
 
             renderSnapshot(engine.getSnapshot());
             statusLabel.setText("Select a cell that is empty or already yours.");
@@ -630,9 +638,6 @@ public final class AppController {
         private Parent buildHeader() {
             VBox header = new VBox(16);
 
-            HBox topRow = new HBox(14);
-            topRow.setAlignment(Pos.CENTER_LEFT);
-
             Label title = new Label("Chain Reaction");
             title.setStyle("-fx-text-fill: white; -fx-font-size: 28px; -fx-font-weight: 900;");
 
@@ -646,15 +651,24 @@ public final class AppController {
                     + "-fx-font-weight: 800;"
             );
 
-            Region spacer = new Region();
-            HBox.setHgrow(spacer, Priority.ALWAYS);
-
             Button restartButton = createPrimaryButton("New Match");
             Button menuButton = createSecondaryButton("Main Menu");
             restartButton.setOnAction(event -> showGameScreen());
             menuButton.setOnAction(event -> showMainMenu());
 
-            topRow.getChildren().addAll(title, boardLabel, spacer, restartButton, menuButton);
+            HBox titleRow = new HBox(14);
+            titleRow.setAlignment(Pos.CENTER_LEFT);
+            titleRow.getChildren().addAll(title, boardLabel);
+
+            Region titleRowGrow = new Region();
+            HBox.setHgrow(titleRowGrow, Priority.ALWAYS);
+
+            HBox actionsRow = new HBox(12);
+            actionsRow.setAlignment(Pos.CENTER_RIGHT);
+            actionsRow.getChildren().addAll(titleRowGrow, restartButton, menuButton);
+
+            VBox topBlock = new VBox(12);
+            topBlock.getChildren().addAll(titleRow, actionsRow);
 
             HBox statusRow = new HBox(16);
             statusRow.setAlignment(Pos.CENTER_LEFT);
@@ -703,7 +717,7 @@ public final class AppController {
             playerStrip.setVgap(10);
 
             statusRow.getChildren().addAll(turnLabel, moveCountLabel, timerLabel, winnerBanner);
-            header.getChildren().addAll(topRow, statusRow, playerStrip);
+            header.getChildren().addAll(topBlock, statusRow, playerStrip);
             return header;
         }
 
@@ -798,24 +812,23 @@ public final class AppController {
                 for (int index = 1; index < frames.size(); index++) {
                     BoardSnapshot frame = frames.get(index);
 
-                    PauseTransition pause = new PauseTransition(Duration.millis(70));                    pause.setOnFinished(e -> renderSnapshot(frame));
+                    PauseTransition pause = new PauseTransition(Duration.millis(70));
+                    pause.setOnFinished(e -> renderSnapshot(frame));
 
                     sequence.getChildren().add(pause);
                 }
 
-                sequence.setOnFinished(e -> finishMove(result));
+                sequence.setOnFinished(e -> {
+                    long animationEndNanos = System.nanoTime();
+                    javafx.util.Duration animationDuration =
+                        javafx.util.Duration.millis((animationEndNanos - animationStartNanos) / 1_000_000);
+                    pauseTimerForAnimation(animationDuration);
+                    finishMove(result);
+                });
                 sequence.play();
             });
 
             delayBeforeExplosion.play();
-            sequence.setOnFinished(event -> {
-                // calculate duration and pause timer after animation ended
-                long animationEndNanos = System.nanoTime();
-                javafx.util.Duration animationDuration = javafx.util.Duration.millis((animationEndNanos - animationStartNanos) / 1_000_000);
-                pauseTimerForAnimation(animationDuration);
-                finishMove(result);
-            });
-            sequence.play();
         }
 
         private void finishMove(MoveResult result) {
