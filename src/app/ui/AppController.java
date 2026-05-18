@@ -228,12 +228,26 @@ public final class AppController {
             createHintLabel("Any exploding orb recolors the destination cell.")
         );
 
-        HBox actions = new HBox(14);
-        Button startButton = createPrimaryButton("Start Match");
+        HBox primaryRow = new HBox(14);
+        primaryRow.setAlignment(Pos.CENTER_LEFT);
+        Button hostButton = createPrimaryButton("Host Game");
+        Button joinButton = createPrimaryButton("Join Game");
+        primaryRow.getChildren().addAll(hostButton, joinButton);
+
+        HBox secondaryRow = new HBox(14);
+        secondaryRow.setAlignment(Pos.CENTER_LEFT);
+        Button startButton = createSecondaryButton("Start Local Match");
         Button settingsButton = createSecondaryButton("Player Colors");
+
+        secondaryRow.getChildren().addAll(startButton, settingsButton);
+
+        VBox actions = new VBox(12);
+        actions.getChildren().addAll(primaryRow, secondaryRow);
+
         startButton.setOnAction(event -> showGameScreen());
+        hostButton.setOnAction(event -> showNetworkHostDialog());
+        joinButton.setOnAction(event -> showNetworkJoinDialog());
         settingsButton.setOnAction(event -> showSettingsScreen());
-        actions.getChildren().addAll(startButton, settingsButton);
 
         Label previewLabel = createSectionLabel("Active Player Palette");
 
@@ -367,6 +381,16 @@ public final class AppController {
 
     private void showSettingsScreen() {
         transitionTo(buildSettingsScreen());
+    }
+
+    private void showNetworkHostDialog() {
+        // TODO: Implement network host
+        System.out.println("TODO: start server game");
+    }
+
+    private void showNetworkJoinDialog() {
+        // TODO: Implement network join
+        System.out.println("TODO: join server game as client");
     }
 
     private void transitionTo(Parent newRoot) {
