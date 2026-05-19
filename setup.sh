@@ -4,13 +4,6 @@ set -e
 # ═══════════════════════════════════════════════════════════
 #  Chain Reaction — One-Command Linux Installer
 #  Ubuntu 18.04 / 22.04 (Debian-based)
-#
-#  Assumptions about the machine:
-#    - git is available (school PC)
-#    - sudo works (apt-get installs)
-#    - no root filesystem access beyond sudo
-#    - Java 25 may or may not be installed
-#    - JavaFX is handled by Gradle — no manual SDK needed
 # ═══════════════════════════════════════════════════════════
 
 RED='\033[0;31m'
