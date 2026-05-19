@@ -66,7 +66,7 @@ public class GameServer implements Runnable {
     }
     
     private void handleMessage(String message, InetAddress address, int port) {
-        String[] parts = message.split(" ");
+        String[] parts = message.split("\t");
         
         if (parts.length == 0) return;
         

@@ -7,7 +7,7 @@ import java.net.InetAddress;
 
 import app.model.BoardSnapshot;
 
-public class GameClient implements Runnable {
+public class GameClient implements Runnable, NetworkGameHandler {
     private DatagramSocket socket;
     private Thread receiveThread;
     private boolean running = true;
@@ -39,12 +39,12 @@ public class GameClient implements Runnable {
     }
     
     public void connect(String playerName, String colorHex) {
-        send(NetworkConstants.MSG_CONNECT + " " + playerName + " " + colorHex);
+        send(NetworkConstants.MSG_CONNECT + "\t" + playerName + "\t" + colorHex);
     }
     
     public void sendMove(int row, int column) {
         if (playerId >= 0) {
-            send(NetworkConstants.MSG_MOVE + " " + playerId + " " + row + " " + column);
+            send(NetworkConstants.MSG_MOVE + "\t" + playerId + "\t" + row + "\t" + column);
         }
     }
     

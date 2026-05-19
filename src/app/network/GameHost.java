@@ -7,7 +7,7 @@ import app.model.GameSettings;
 import app.model.PlayerProfile;
 
 
-public final class GameHost {
+public final class GameHost implements NetworkGameHandler {
 
     private final GameServer server;
     private final GameClient client;
@@ -57,6 +57,14 @@ public final class GameHost {
     }
 
     public int getSelfPlayerId() {
+        return selfPlayerId;
+    }
+
+    public int getHostPlayerId() {
+        return selfPlayerId;
+    }
+
+    public int getPlayerId() {
         return selfPlayerId;
     }
 
