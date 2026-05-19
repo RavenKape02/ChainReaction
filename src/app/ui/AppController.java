@@ -490,8 +490,6 @@ public final class AppController {
         this.pendingClient = client;
         this.sessionStarted = false;
 
-        joinedSession = new GameSessionView(client, activePlayers);
-
         client.setCallback(new GameClient.StateCallback() {
             @Override
             public void onStateReceived(BoardSnapshot snapshot) {
@@ -510,6 +508,9 @@ public final class AppController {
             @Override
             public void onConnected(int id) {
                 System.out.println("Connected as player " + id);
+                if (joinedSession != null) {
+                    joinedSession.selfPlayerId = id;
+                }
             }
 
             @Override
@@ -522,6 +523,8 @@ public final class AppController {
                 javafx.application.Platform.runLater(() -> toastError(error));
             }
         });
+
+        joinedSession = new GameSessionView(client, activePlayers);
 
         try {
             PlayerProfile myProfile = activePlayers.get(0);
