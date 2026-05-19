@@ -14,12 +14,14 @@ public class GameClient implements Runnable, NetworkGameHandler {
     private InetAddress serverAddress;
     private int serverPort;
     private int playerId = -1;
-    
+    private int timeLimitSeconds = 0;
+
     public interface StateCallback {
         void onStateReceived(BoardSnapshot snapshot);
         void onConnected(int id);
         void onGameStart();
         void onError(String error);
+        void onSettingsReceived(int playerCount, int rows, int columns, int timeLimitSeconds);
     }
     
     private StateCallback callback;
@@ -97,6 +99,25 @@ public class GameClient implements Runnable, NetworkGameHandler {
                     if (callback != null) callback.onStateReceived(latestSnapshot);
                 } catch (Exception e) {
                     System.err.println("Failed to decode state: " + e.getMessage());
+                }
+                break;
+                 
+            case NetworkConstants.MSG_SETTINGS:
+                try {
+                    String[] settingParts = payload.split(" ");
+                    if (settingParts.length >= 4) {
+                        int playerCount = Integer.parseInt(settingParts[0]);
+                        int rows = Integer.parseInt(settingParts[1]);
+                        int columns = Integer.parseInt(settingParts[2]);
+                        int timeLimit = Integer.parseInt(settingParts[3]);
+                        timeLimitSeconds = timeLimit;
+                        // callback with all settings
+                        if (callback != null) {
+                            callback.onSettingsReceived(playerCount, rows, columns, timeLimitSeconds);
+                        }
+                    }
+                } catch (NumberFormatException e) {
+                    System.err.println("Failed to parse settings: " + e.getMessage());
                 }
                 break;
                 

@@ -88,6 +88,13 @@ public class GameServer implements Runnable {
                     
                     if (playerCount >= settings.getPlayerCount()) {
                         gameStage = GAME_START;
+                        // send host game settings to all players
+                        broadcast(NetworkConstants.MSG_SETTINGS + " " + 
+                                settings.getPlayerCount() + " " +
+                                settings.getRows() + " " +
+                                settings.getColumns() + " " +
+                                settings.getTimeLimitSeconds());
+                        // then start the game
                         broadcast(NetworkConstants.MSG_START);
                         gameStage = IN_PROGRESS;
                         broadcast(NetworkConstants.MSG_STATE + " " + engine.getSnapshot().encode());

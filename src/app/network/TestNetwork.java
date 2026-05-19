@@ -144,6 +144,9 @@ public class TestNetwork {
         @Override public void onGameStart() {
             System.out.println("  [Ralph] START received");
         }
+        @Override public void onSettingsReceived(int playerCount, int rows, int columns, int timeLimitSeconds) {
+            System.out.println("  [Ralph] SETTINGS: players=" + playerCount + " rows=" + rows + " cols=" + columns + " timer=" + timeLimitSeconds);
+        }
         @Override public void onError(String error) {
             System.out.println("  [Ralph] ERROR: " + error);
         }

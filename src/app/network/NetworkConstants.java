@@ -12,6 +12,7 @@ public final class NetworkConstants {
     public static final String MSG_STATE = "STATE";
     public static final String MSG_WAITING = "WAITING";
     public static final String MSG_ERROR = "ERROR";
+    public static final String MSG_SETTINGS = "SETTINGS";
     
     private NetworkConstants() {}
 }

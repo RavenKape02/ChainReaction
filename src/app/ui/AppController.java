@@ -442,13 +442,15 @@ public final class AppController {
         }
 
         this.pendingHost = host;
+        this.joinedSession = new GameSessionView(host, activePlayers);
+        host.setRenderCallback(this.joinedSession::renderSnapshotFromNetwork);
 
         new Thread(() -> {
             try {
                 host.waitForOpponent();
                 javafx.application.Platform.runLater(() -> {
                     hideLobbyOverlay();
-                    transitionTo(new GameSessionView(host, activePlayers).root());
+                    transitionTo(joinedSession.root());
                 });
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -516,6 +518,15 @@ public final class AppController {
             @Override
             public void onGameStart() {
                 System.out.println("Game started.");
+            }
+
+            @Override
+            public void onSettingsReceived(int playerCount, int rows, int columns, int timeLimitSeconds) {
+                javafx.application.Platform.runLater(() -> {
+                    if (joinedSession != null) {
+                        joinedSession.updateSettings(playerCount, rows, columns, timeLimitSeconds);
+                    }
+                });
             }
 
             @Override
@@ -853,7 +864,7 @@ public final class AppController {
     private final class GameSessionView {
 
         private GameEngine engine;          // non-null for local mode; null for network paths
-        private final ArrayList<PlayerProfile> players;
+        private ArrayList<PlayerProfile> players;
         private GameHost host;              // non-null for host-player mode; null otherwise
         private GameClient client;          // non-null for joiner mode; null otherwise
         private NetworkGameHandler handler; // set from host or client; null means local engine mode
@@ -903,12 +914,13 @@ public final class AppController {
             this.client = client;
             this.handler = client;
             this.players = players;
-            this.gameSettings = AppController.this.currentSettings;
             this.selfPlayerId = client.getPlayerId();
-            buildGamePane();
         }
 
         private Parent root() {
+            if (rootStack == null) {
+                buildGamePane();
+            }
             return rootStack;
         }
 
@@ -1238,6 +1250,8 @@ public final class AppController {
         }
 
         private void renderSnapshot(BoardSnapshot snapshot) {
+            if (cellViews == null) return;
+
             BoardSnapshot snap = (handler != null)
                 ? handler.getLatestSnapshot()
                 : snapshot;
@@ -1292,12 +1306,7 @@ public final class AppController {
             return count;
         }
 
-        /**
-          * Called from the GameClient receive thread via {@link Platform#runLater}.
-          * Guarded by a flag so that a snapshot already being rendered by the current
-          * animation frame is not interrupted.
-          */
-        void renderSnapshotFromNetwork(BoardSnapshot snapshot) {
+        public void renderSnapshotFromNetwork(BoardSnapshot snapshot) {
             if (snapshotBeingRendered) return;
             snapshotBeingRendered = true;
             try {
@@ -1309,17 +1318,28 @@ public final class AppController {
 
         private boolean snapshotBeingRendered = false;
 
-        /**
-         * Reads remaining seconds from the latest server STATE payload.
-         * Will return full {@code timeLimit} until {@link BoardSnapshot} is extended
-         * to carry a server-supplied countdown. Presently matches local time limit so
-         * the label always shows a valid number rather than hard-coding a stale value.
-         */
+        private void rebuildBoardGridIfDimMismatch() {
+            if (cellViews == null) {
+                System.err.println("DEBUG: cellViews is NULL — calling buildBoardArea");
+                buildBoardArea();
+                return;
+            }
+            int expectedRows = gameSettings.getRows();
+            int expectedCols = gameSettings.getColumns();
+            if (cellViews.length != expectedRows || (cellViews.length > 0 && cellViews[0].length != expectedCols)) {
+                System.err.println("DEBUG: DIMENSION MISMATCH");
+                Parent newBoard = buildBoardArea();
+                gamePane.setCenter(newBoard);
+            } else {
+                // System.err.println("DEBUG: dimensions already match");
+            }
+        }
+
         private int remoteTimerRemaining(int timeLimit) {
             BoardSnapshot snap = handler.getLatestSnapshot();
             if (snap == null) return timeLimit;
             // TODO: BoardSnapshot extended with getRemainingTimeSeconds() when server sends it.
-            return timeLimit; // placeholder — label will update whenever a new STATE is decoded
+            return timeLimit; // placeholder 
         }
 
         // timer display updater
@@ -1414,6 +1434,36 @@ public final class AppController {
                 statusLabel.setText("Time's up! Turn skipped.");
                 renderSnapshot(engine.getSnapshot());
             }
+        }
+         
+        // Updates all game settings (player count, board size, time limit)
+        // received from the host in network mode and refreshes the display.
+        public void updateSettings(int playerCount, int rows, int columns, int timeLimitSeconds) {
+            this.gameSettings = new GameSettings(playerCount, rows, columns, timeLimitSeconds);
+            if (players.size() != playerCount) {
+                // System.err.printf("[updateSettings] players.size()=%d host.playerCount=%d — resyncing%n", players.size(), playerCount);
+                java.util.ArrayList<PlayerProfile> synced = new java.util.ArrayList<>();
+                ArrayList<PlayerProfile> master = AppController.this.allPlayers;
+                // copy existing players up to the minimum of both lists
+                int limit = Math.min(players.size(), playerCount);
+                for (int i = 0; i < limit; i++) {
+                    synced.add(players.get(i));
+                }
+                // pad or trim to exactly playerCount
+                for (int i = synced.size(); i < playerCount; i++) {
+                    int srcIdx = Math.min(i, master.size() - 1);
+                    synced.add(master.get(srcIdx));
+                }
+                players = synced;
+                // System.err.printf("[updateSettings] after synced: players.size()=%d playerCount=%d%n", players.size(), playerCount);
+            }
+            if (rootStack == null) {
+                buildGamePane();
+            } else {
+                rebuildBoardGridIfDimMismatch();
+            }
+            // Update timer display after grid is consistent
+            updateTimerDisplay();
         }
         
         // call to pause timer during animations

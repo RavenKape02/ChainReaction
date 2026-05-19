@@ -1,10 +1,12 @@
 package app.network;
 
 import java.util.concurrent.CountDownLatch;
+import javafx.application.Platform;
 
 import app.model.BoardSnapshot;
 import app.model.GameSettings;
 import app.model.PlayerProfile;
+import app.ui.SnapshotRenderCallback;
 
 
 public final class GameHost implements NetworkGameHandler {
@@ -16,6 +18,7 @@ public final class GameHost implements NetworkGameHandler {
 
     private BoardSnapshot latestSnapshot;
     private int selfPlayerId = -1;
+    private SnapshotRenderCallback renderCallback;
 
     public GameHost(
             int playerCount, int rows, int columns, int timeLimit,
@@ -40,6 +43,10 @@ public final class GameHost implements NetworkGameHandler {
             (int) Math.round(c.getRed() * 255),
             (int) Math.round(c.getGreen() * 255),
             (int) Math.round(c.getBlue() * 255));
+    }
+
+    public void setRenderCallback(SnapshotRenderCallback renderCallback) {
+        this.renderCallback = renderCallback;
     }
 
     public void waitForOpponent() throws InterruptedException {
@@ -79,6 +86,9 @@ public final class GameHost implements NetworkGameHandler {
         @Override
         public void onStateReceived(BoardSnapshot snapshot) {
             latestSnapshot = snapshot;
+            if (renderCallback != null) {
+                Platform.runLater(() -> renderCallback.renderSnapshotFromNetwork(snapshot));
+            }
         }
 
         @Override
@@ -89,6 +99,10 @@ public final class GameHost implements NetworkGameHandler {
         @Override
         public void onGameStart() {
             gameStartLatch.countDown();
+        }
+
+        @Override
+        public void onSettingsReceived(int playerCount, int rows, int columns, int timeLimitSeconds) {
         }
 
         @Override
