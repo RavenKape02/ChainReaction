@@ -66,6 +66,62 @@ public final class BoardSnapshot {
     public boolean hasWinner() {
         return winnerIndex != null;
     }
+    
+    public String encode() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(rows).append(",").append(columns).append("|");
+        
+        for (int row = 0; row < rows; row++) {
+            for (int col = 0; col < columns; col++) {
+                sb.append(ownerIndexes[row][col]).append(",").append(orbCounts[row][col]).append(";");
+            }
+        }
+        sb.append("|");
+        
+        for (int i = 0; i < eliminatedPlayers.length; i++) {
+            sb.append(eliminatedPlayers[i] ? "1" : "0");
+        }
+        sb.append("|").append(currentPlayerIndex).append("|").append(movesPlayed).append("|");
+        
+        if (winnerIndex != null) {
+            sb.append(winnerIndex);
+        }
+        
+        return sb.toString();
+    }
+    
+    public static BoardSnapshot decode(String encoded) {
+        String data = encoded;
+        String[] parts = data.split("\\|");
+        
+        String[] dims = parts[0].split(",");
+        int rows = Integer.parseInt(dims[0]);
+        int columns = Integer.parseInt(dims[1]);
+        
+        int[][] orbCounts = new int[rows][columns];
+        int[][] ownerIndexes = new int[rows][columns];
+        
+        String[] cells = parts[1].split(";");
+        int idx = 0;
+        for (int row = 0; row < rows; row++) {
+            for (int col = 0; col < columns; col++) {
+                String[] cell = cells[idx++].split(",");
+                ownerIndexes[row][col] = Integer.parseInt(cell[0]);
+                orbCounts[row][col] = Integer.parseInt(cell[1]);
+            }
+        }
+        
+        boolean[] eliminatedPlayers = new boolean[parts[2].length()];
+        for (int i = 0; i < eliminatedPlayers.length; i++) {
+            eliminatedPlayers[i] = parts[2].charAt(i) == '1';
+        }
+        
+        int currentPlayerIndex = Integer.parseInt(parts[3]);
+        int movesPlayed = Integer.parseInt(parts[4]);
+        Integer winnerIndex = parts.length > 5 && !parts[5].isEmpty() ? Integer.parseInt(parts[5]) : null;
+        
+        return new BoardSnapshot(orbCounts, ownerIndexes, eliminatedPlayers, currentPlayerIndex, movesPlayed, winnerIndex);
+    }
 
     private int[][] copyMatrix(int[][] source) {
         int[][] copy = new int[source.length][];
