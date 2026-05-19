@@ -1,6 +1,6 @@
 # Chain Reaction
 
-JavaFX 26 recreation of the Chain Reaction game for **Java 25 LTS** and **Eclipse**.
+JavaFX 26 recreation of the Chain Reaction game for **Java 25 LTS**.
 
 ## Features
 
@@ -16,6 +16,9 @@ JavaFX 26 recreation of the Chain Reaction game for **Java 25 LTS** and **Eclips
 
 ```text
 ChainReaction/
+  build.gradle              ← Gradle build (handles JavaFX automatically)
+  settings.gradle
+  setup.sh                  ← One-command Linux installer
   src/
     module-info.java
     app/
@@ -25,7 +28,34 @@ ChainReaction/
       ui/
 ```
 
-## Prerequisites
+---
+
+## Quick Start — Linux (Ubuntu 18.04 / 22.04)
+
+**One command.** No Eclipse, no manual JavaFX setup, no VM-argument fiddling.
+
+```bash
+chmod +x setup.sh && ./setup.sh
+```
+
+What it does automatically:
+
+1. Installs `curl`, `unzip`, `zip` via `apt`
+2. Installs **SDKMAN** (if not present)
+3. Installs **Java 25 LTS** via SDKMAN (or Adoptium fallback)
+4. Installs **Gradle 8.14** and generates the Gradle wrapper
+5. Downloads **JavaFX 26** as a managed dependency — no manual SDK download
+6. Launches the game with `./gradlew run`
+
+After the first run, you only need:
+
+```bash
+./gradlew run
+```
+
+---
+
+## Prerequisites (manual setup)
 
 1. Install **JDK 25**
 2. Install **JavaFX 26 SDK**
@@ -81,12 +111,5 @@ module ChainReaction {
 
 ## Notes
 
-- The app is code-first JavaFX and does not use FXML, Maven, or Gradle.
+- The app is code-first JavaFX and does not use FXML.
 - If Eclipse does not start the app, verify that JavaFX JARs are on the **Modulepath**, not the **Classpath**.
-
-
-
-
-
-
-
