@@ -238,7 +238,7 @@ cd "$SAVED" >/dev/null
 APP_NAME="Gradle"
 APP_BASE_NAME=$(basename "$0")
 
-DEFAULT_JVM_OPTS='"-Xmx64m" "-Xms64m"'
+DEFAULT_JVM_OPTS="-Xmx64m -Xms64m"
 
 MAX_FD="maximum"
 
@@ -266,6 +266,23 @@ case "$(uname)" in
 esac
 
 CLASSPATH=$APP_HOME/gradle/wrapper/gradle-wrapper.jar
+
+# Auto-detect Java 25 from locations setup.sh may have installed it to.
+# This makes "./gradlew run" work standalone without pre-sourcing anything.
+if [ -z "$JAVA_HOME" ]; then
+    if [ -d "$HOME/jdk-25" ]; then
+        JAVA_HOME="$HOME/jdk-25"
+    elif [ -d "$HOME/.sdkman/candidates/java" ]; then
+        JAVA25_DIR=$(find "$HOME/.sdkman/candidates/java" -maxdepth 1 -name "25*" -type d 2>/dev/null | head -1)
+        if [ -n "$JAVA25_DIR" ]; then
+            JAVA_HOME="$JAVA25_DIR"
+        fi
+    fi
+    if [ -n "$JAVA_HOME" ]; then
+        export JAVA_HOME
+        export PATH="$JAVA_HOME/bin:$PATH"
+    fi
+fi
 
 # Determine the Java command to use to start the JVM.
 if [ -n "$JAVA_HOME" ] ; then
