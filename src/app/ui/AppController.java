@@ -983,7 +983,11 @@ public final class AppController {
 
             HBox actionsRow = new HBox(12);
             actionsRow.setAlignment(Pos.CENTER_RIGHT);
-            actionsRow.getChildren().addAll(titleRowGrow, restartButton, menuButton);
+            if (handler == null) {
+                actionsRow.getChildren().addAll(titleRowGrow, restartButton, menuButton);
+            } else {
+                actionsRow.getChildren().addAll(titleRowGrow, menuButton);
+            }
 
             VBox topBlock = new VBox(12);
             topBlock.getChildren().addAll(titleRow, actionsRow);
