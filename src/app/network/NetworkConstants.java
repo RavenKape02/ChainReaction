@@ -3,7 +3,7 @@ package app.network;
 public final class NetworkConstants {
     public static final int PORT = 4444;
     public static final int SOCKET_TIMEOUT_MS = 100;
-    public static final int BUFFER_SIZE = 1024;
+    public static final int BUFFER_SIZE = 4096;
     
     public static final String MSG_CONNECT = "CONNECT";
     public static final String MSG_CONNECTED = "CONNECTED";

@@ -156,7 +156,7 @@ public final class AppController {
 
         // timer settings
         ComboBox<Integer> timerComboBox = new ComboBox<>();
-        timerComboBox.getItems().addAll(0, 10, 15, 20, 30, 45, 60);
+        timerComboBox.getItems().addAll(0, 5, 10, 15, 20, 30, 45, 60);
         timerComboBox.setValue(currentSettings.getTimeLimitSeconds());
         styleComboBox(timerComboBox);
         
@@ -887,8 +887,8 @@ public final class AppController {
         private boolean animationRunning;
         private int lastMoveRow = -1;
         private int lastMoveCol = -1;
-        // -1 until CONNECTED; set in host / joiner constructor from handler
         private int selfPlayerId = -1;
+        private int lastKnownPlayerIndex = -1;
 
         // Local / engine-backed constructor
         private GameSessionView(GameEngine engine, ArrayList<PlayerProfile> players) {
@@ -1310,6 +1310,9 @@ public final class AppController {
             if (snapshotBeingRendered) return;
             snapshotBeingRendered = true;
             try {
+                if (lastKnownPlayerIndex < 0) {
+                    lastKnownPlayerIndex = snapshot.getCurrentPlayerIndex();
+                }
                 renderSnapshot(snapshot);
             } finally {
                 snapshotBeingRendered = false;
@@ -1338,8 +1341,9 @@ public final class AppController {
         private int remoteTimerRemaining(int timeLimit) {
             BoardSnapshot snap = handler.getLatestSnapshot();
             if (snap == null) return timeLimit;
-            // TODO: BoardSnapshot extended with getRemainingTimeSeconds() when server sends it.
-            return timeLimit; // placeholder 
+            int remaining = snap.getRemainingTimeSeconds();
+            // if snapshot carries no time data (0) fall back to full limit
+            return remaining > 0 ? remaining : timeLimit;
         }
 
         // timer display updater
@@ -1374,6 +1378,14 @@ public final class AppController {
             if (handler != null) {
                 BoardSnapshot latest = handler.getLatestSnapshot();
                 if (latest != null) {
+                    // detect server-driven turn skip
+                    int newPlayerIndex = latest.getCurrentPlayerIndex();
+                    if (lastKnownPlayerIndex >= 0 && newPlayerIndex != lastKnownPlayerIndex
+                            && !latest.hasWinner()) {
+                        // turn changed without a local move, server skipped because of timeout
+                        statusLabel.setText("Time's up! Turn skipped.");
+                    }
+                    lastKnownPlayerIndex = newPlayerIndex;
                     renderSnapshot(latest);
                 }
             }
@@ -1429,7 +1441,7 @@ public final class AppController {
                 );
             }
             
-            // timer expiration — handled by server in network mode; skip
+            // timer expiration — handled by server in network mode; local engine only
             if (engine != null && engine.handleTimerExpiration()) {
                 statusLabel.setText("Time's up! Turn skipped.");
                 renderSnapshot(engine.getSnapshot());

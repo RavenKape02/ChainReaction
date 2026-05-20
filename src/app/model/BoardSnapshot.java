@@ -12,6 +12,7 @@ public final class BoardSnapshot {
     private final int currentPlayerIndex;
     private final int movesPlayed;
     private final Integer winnerIndex;
+    private final int remainingTimeSeconds;
 
     public BoardSnapshot(
         int[][] orbCounts,
@@ -21,6 +22,18 @@ public final class BoardSnapshot {
         int movesPlayed,
         Integer winnerIndex
     ) {
+        this(orbCounts, ownerIndexes, eliminatedPlayers, currentPlayerIndex, movesPlayed, winnerIndex, 0);
+    }
+
+    public BoardSnapshot(
+        int[][] orbCounts,
+        int[][] ownerIndexes,
+        boolean[] eliminatedPlayers,
+        int currentPlayerIndex,
+        int movesPlayed,
+        Integer winnerIndex,
+        int remainingTimeSeconds
+    ) {
         this.rows = orbCounts.length;
         this.columns = rows == 0 ? 0 : orbCounts[0].length;
         this.orbCounts = copyMatrix(orbCounts);
@@ -29,6 +42,7 @@ public final class BoardSnapshot {
         this.currentPlayerIndex = currentPlayerIndex;
         this.movesPlayed = movesPlayed;
         this.winnerIndex = winnerIndex;
+        this.remainingTimeSeconds = Math.max(0, remainingTimeSeconds);
     }
 
     public int getRows() {
@@ -66,7 +80,11 @@ public final class BoardSnapshot {
     public boolean hasWinner() {
         return winnerIndex != null;
     }
-    
+
+    public int getRemainingTimeSeconds() {
+        return remainingTimeSeconds;
+    }
+
     public String encode() {
         StringBuilder sb = new StringBuilder();
         sb.append(rows).append(",").append(columns).append("|");
@@ -86,6 +104,9 @@ public final class BoardSnapshot {
         if (winnerIndex != null) {
             sb.append(winnerIndex);
         }
+        
+        // append remaining time
+        sb.append("|").append(remainingTimeSeconds);
         
         return sb.toString();
     }
@@ -119,8 +140,9 @@ public final class BoardSnapshot {
         int currentPlayerIndex = Integer.parseInt(parts[3]);
         int movesPlayed = Integer.parseInt(parts[4]);
         Integer winnerIndex = parts.length > 5 && !parts[5].isEmpty() ? Integer.parseInt(parts[5]) : null;
+        int remainingTimeSeconds = parts.length > 6 && !parts[6].isEmpty() ? Integer.parseInt(parts[6]) : 0;
         
-        return new BoardSnapshot(orbCounts, ownerIndexes, eliminatedPlayers, currentPlayerIndex, movesPlayed, winnerIndex);
+        return new BoardSnapshot(orbCounts, ownerIndexes, eliminatedPlayers, currentPlayerIndex, movesPlayed, winnerIndex, remainingTimeSeconds);
     }
 
     private int[][] copyMatrix(int[][] source) {
