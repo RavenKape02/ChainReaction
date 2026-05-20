@@ -19,6 +19,7 @@ public class GameServer implements Runnable {
     
     private DatagramSocket serverSocket;
     private Thread serverThread;
+    private Thread timerThread;
     private GameEngine engine;
     private GameSettings settings;
     private Map<Integer, NetworkPlayer> players;
@@ -98,6 +99,10 @@ public class GameServer implements Runnable {
                         broadcast(NetworkConstants.MSG_START);
                         gameStage = IN_PROGRESS;
                         broadcast(NetworkConstants.MSG_STATE + " " + engine.getSnapshot().encode());
+                        // start server-side timer thread if a time limit is set
+                        if (settings.getTimeLimitSeconds() > 0) {
+                            startTimerThread();
+                        }
                     }
                     
                     currentPlayerId++;
@@ -123,6 +128,41 @@ public class GameServer implements Runnable {
         }
     }
     
+    private void startTimerThread() {
+        timerThread = new Thread(() -> {
+            int lastBroadcastRemaining = -1;
+            while (running && gameStage == IN_PROGRESS) {
+                try {
+                    Thread.sleep(200);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+
+                BoardSnapshot snap = engine.getSnapshot();
+                if (snap.hasWinner()) {
+                    break;
+                }
+
+                // advance turn if expired
+                if (engine.isTimerExpired()) {
+                    engine.handleTimerExpiration();
+                    // broadcast the new state (new current player, timer reset to full)
+                    broadcast(NetworkConstants.MSG_STATE + " " + engine.getSnapshot().encode());
+                    lastBroadcastRemaining = engine.getSnapshot().getRemainingTimeSeconds();
+                } else {
+                    int remaining = engine.getRemainingTimeSeconds();
+                    if (remaining != lastBroadcastRemaining) {
+                        lastBroadcastRemaining = remaining;
+                        broadcast(NetworkConstants.MSG_STATE + " " + engine.getSnapshot().encode());
+                    }
+                }
+            }
+        });
+        timerThread.setDaemon(true);
+        timerThread.start();
+    }
+
     private void broadcast(String message) {
         for (NetworkPlayer player : players.values()) {
             sendToClient(player.getAddress(), player.getPort(), message);
@@ -141,6 +181,9 @@ public class GameServer implements Runnable {
     
     public void stop() {
         running = false;
+        if (timerThread != null) {
+            timerThread.interrupt();
+        }
         if (serverSocket != null) {
             serverSocket.close();
         }
