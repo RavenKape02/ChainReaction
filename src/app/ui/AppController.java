@@ -905,7 +905,8 @@ public final class AppController {
             this.handler = host;
             this.players = players;
             this.gameSettings = AppController.this.currentSettings;
-            this.selfPlayerId = host.getHostPlayerId();
+            // selfPlayerId is intentionally not cached here; handler.getPlayerId() is called
+            // lazily at move-time so the loopback CONNECTED race condition cannot affect it.
             buildGamePane();
         }
 
@@ -1158,7 +1159,8 @@ public final class AppController {
                 if (snap == null || snap.hasWinner()) {
                     return;
                 }
-                if (selfPlayerId < 0 || selfPlayerId != snap.getCurrentPlayerIndex()) {
+                int myId = handler.getPlayerId();
+                if (myId < 0 || myId != snap.getCurrentPlayerIndex()) {
                     statusLabel.setText("Not your turn.");
                     return;
                 }
