@@ -14,14 +14,11 @@ public final class GameSettings {
         if (rows < 2 || columns < 2) {
             throw new IllegalArgumentException("Board dimensions must be at least 2 x 2.");
         }
-        if (timeLimitSeconds < 0) {
-            throw new IllegalArgumentException("Time limit cannot be negative.");
-        }
 
         this.playerCount = playerCount;
         this.rows = rows;
         this.columns = columns;
-        this.timeLimitSeconds = timeLimitSeconds;
+        this.timeLimitSeconds = Math.max(0, timeLimitSeconds);
     }
 
     public int getPlayerCount() {

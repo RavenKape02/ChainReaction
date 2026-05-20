@@ -10,6 +10,10 @@ import app.logic.MoveResult;
 import app.model.BoardSnapshot;
 import app.model.GameSettings;
 import app.model.PlayerProfile;
+import app.network.GameHost;
+import app.network.GameClient;
+import app.network.NetworkGameHandler;
+import app.network.NetworkConstants;
 import javafx.animation.FadeTransition;
 import javafx.animation.Interpolator;
 import javafx.animation.PauseTransition;
@@ -17,14 +21,17 @@ import javafx.animation.ScaleTransition;
 import javafx.animation.SequentialTransition;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.application.Platform;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
+import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.ColorPicker;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.TextInputDialog;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.GridPane;
@@ -84,6 +91,13 @@ public final class AppController {
 
     private Scene scene;
     private GameSettings currentSettings;
+    
+    // Network support fields
+    private GameHost pendingHost;
+    private GameClient pendingClient;
+    private GameSessionView joinedSession;
+    private boolean sessionStarted;
+    private StackPane rootOverlay;
 
     public AppController(Stage stage) {
         this.stage = stage;
@@ -95,7 +109,10 @@ public final class AppController {
     }
 
     public void show() {
-        scene = new Scene(buildMainMenu(), WINDOW_WIDTH, WINDOW_HEIGHT);
+        StackPane rootStack = new StackPane();
+        rootStack.getChildren().add(buildMainMenu());
+        
+        scene = new Scene(rootStack, WINDOW_WIDTH, WINDOW_HEIGHT);
         stage.setTitle("Chain Reaction");
         stage.setMinWidth(980);
         stage.setMinHeight(820);
@@ -139,7 +156,7 @@ public final class AppController {
 
         // timer settings
         ComboBox<Integer> timerComboBox = new ComboBox<>();
-        timerComboBox.getItems().addAll(0, 10, 15, 20, 30, 45, 60);
+        timerComboBox.getItems().addAll(0, 5, 10, 15, 20, 30, 45, 60);
         timerComboBox.setValue(currentSettings.getTimeLimitSeconds());
         styleComboBox(timerComboBox);
         
@@ -228,12 +245,26 @@ public final class AppController {
             createHintLabel("Any exploding orb recolors the destination cell.")
         );
 
-        HBox actions = new HBox(14);
-        Button startButton = createPrimaryButton("Start Match");
+        HBox primaryRow = new HBox(14);
+        primaryRow.setAlignment(Pos.CENTER_LEFT);
+        Button hostButton = createPrimaryButton("Host Game");
+        Button joinButton = createPrimaryButton("Join Game");
+        primaryRow.getChildren().addAll(hostButton, joinButton);
+
+        HBox secondaryRow = new HBox(14);
+        secondaryRow.setAlignment(Pos.CENTER_LEFT);
+        Button startButton = createSecondaryButton("Start Local Match");
         Button settingsButton = createSecondaryButton("Player Colors");
+
+        secondaryRow.getChildren().addAll(startButton, settingsButton);
+
+        VBox actions = new VBox(12);
+        actions.getChildren().addAll(primaryRow, secondaryRow);
+
         startButton.setOnAction(event -> showGameScreen());
+        hostButton.setOnAction(event -> showNetworkHostDialog());
+        joinButton.setOnAction(event -> showNetworkJoinDialog());
         settingsButton.setOnAction(event -> showSettingsScreen());
-        actions.getChildren().addAll(startButton, settingsButton);
 
         Label previewLabel = createSectionLabel("Active Player Palette");
 
@@ -362,21 +393,273 @@ public final class AppController {
     }
 
     private void showMainMenu() {
+        if (pendingClient != null) {
+            pendingClient.stop();
+            pendingClient = null;
+        }
+        if (pendingHost != null) {
+            pendingHost.stop();
+            pendingHost = null;
+        }
+        hideLobbyOverlay();
         transitionTo(buildMainMenu());
     }
 
     private void showSettingsScreen() {
+        if (pendingClient != null) {
+            pendingClient.stop();
+            pendingClient = null;
+        }
+        if (pendingHost != null) {
+            pendingHost.stop();
+            pendingHost = null;
+        }
         transitionTo(buildSettingsScreen());
     }
 
+    private void showNetworkHostDialog() {
+        ArrayList<PlayerProfile> activePlayers = new ArrayList<>(
+            allPlayers.subList(0, currentSettings.getPlayerCount())
+        );
+        String[] names = activePlayers.stream().map(PlayerProfile::getName).toArray(String[]::new);
+        javafx.scene.paint.Color[] colors = new javafx.scene.paint.Color[activePlayers.size()];
+        for (int i = 0; i < activePlayers.size(); i++) {
+            colors[i] = activePlayers.get(i).getColor();
+        }
+
+        GameHost host;
+        try {
+            host = new GameHost(
+                currentSettings.getPlayerCount(),
+                currentSettings.getRows(),
+                currentSettings.getColumns(),
+                currentSettings.getTimeLimitSeconds(),
+                names, colors
+            );
+        } catch (Exception e) {
+            showAlert("Failed to start host server: " + e.getMessage());
+            return;
+        }
+
+        this.pendingHost = host;
+        this.joinedSession = new GameSessionView(host, activePlayers);
+        host.setRenderCallback(this.joinedSession::renderSnapshotFromNetwork);
+
+        new Thread(() -> {
+            try {
+                host.waitForOpponent();
+                javafx.application.Platform.runLater(() -> {
+                    hideLobbyOverlay();
+                    transitionTo(joinedSession.root());
+                });
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                javafx.application.Platform.runLater(() -> {
+                    hideLobbyOverlay();
+                    showMainMenu();
+                });
+            }
+        }).start();
+
+        showLobbyOverlay(host,
+            "Waiting for opponent to connect on port " + NetworkConstants.PORT + "…");
+    }
+
+    private void showNetworkJoinDialog() {
+        javafx.scene.control.TextInputDialog ipDialog = new javafx.scene.control.TextInputDialog("127.0.0.1");
+        ipDialog.setTitle("Join Online Game");
+        ipDialog.setHeaderText("Enter the host's IP address");
+        ipDialog.setContentText("Host IP:");
+
+        java.util.Optional<String> result = ipDialog.showAndWait();
+        if (result.isEmpty()) return;
+
+        String hostIp = result.get().trim();
+        if (hostIp.isBlank()) return;
+
+        ArrayList<PlayerProfile> activePlayers = new ArrayList<>(
+            allPlayers.subList(0, currentSettings.getPlayerCount())
+        );
+
+        GameClient client;
+        try {
+            client = new GameClient(hostIp, NetworkConstants.PORT);
+        } catch (java.io.IOException e) {
+            showAlert("Cannot reach server at " + hostIp + ": " + e.getMessage());
+            return;
+        }
+
+        this.pendingClient = client;
+        this.sessionStarted = false;
+
+        client.setCallback(new GameClient.StateCallback() {
+            @Override
+            public void onStateReceived(BoardSnapshot snapshot) {
+                javafx.application.Platform.runLater(() -> {
+                    if (joinedSession != null) {
+                        joinedSession.renderSnapshotFromNetwork(snapshot);
+                    }
+                    if (!sessionStarted && snapshot != null) {
+                        sessionStarted = true;
+                        hideLobbyOverlay();
+                        transitionTo(joinedSession.root());
+                    }
+                });
+            }
+
+            @Override
+            public void onConnected(int id) {
+                System.out.println("Connected as player " + id);
+                if (joinedSession != null) {
+                    joinedSession.selfPlayerId = id;
+                }
+            }
+
+            @Override
+            public void onGameStart() {
+                System.out.println("Game started.");
+            }
+
+            @Override
+            public void onSettingsReceived(int playerCount, int rows, int columns, int timeLimitSeconds) {
+                javafx.application.Platform.runLater(() -> {
+                    if (joinedSession != null) {
+                        joinedSession.updateSettings(playerCount, rows, columns, timeLimitSeconds);
+                    }
+                });
+            }
+
+            @Override
+            public void onError(String error) {
+                javafx.application.Platform.runLater(() -> toastError(error));
+            }
+        });
+
+        joinedSession = new GameSessionView(client, activePlayers);
+
+        try {
+            PlayerProfile myProfile = activePlayers.get(0);
+            client.connect(myProfile.getName(), colorToHex(myProfile.getColor()));
+        } catch (Exception e) {
+            showAlert("Failed to connect: " + e.getMessage());
+            return;
+        }
+
+        showLobbyOverlay(hostIp, "Connecting to " + hostIp + "…  Waiting for host to start.");
+    }
+
+    private void showLobbyOverlay(GameHost host, String message) {
+        StackPane rootStack = (StackPane) scene.getRoot();
+        this.rootOverlay = new StackPane();
+        StackPane.setAlignment(rootOverlay, Pos.CENTER);
+        rootStack.getChildren().add(rootOverlay);
+        
+        StackPane overlay = buildLobbyCard(message, () -> {
+            if (host != null) host.stop();
+            pendingHost = null;
+            hideLobbyOverlay();
+            showMainMenu();
+        });
+        rootOverlay.getChildren().add(overlay);
+    }
+
+    private void showLobbyOverlay(String hostIp, String message) {
+        StackPane rootStack = (StackPane) scene.getRoot();
+        this.rootOverlay = new StackPane();
+        StackPane.setAlignment(rootOverlay, Pos.CENTER);
+        rootStack.getChildren().add(rootOverlay);
+        
+        StackPane overlay = buildLobbyCard(message, () -> {
+            if (pendingClient != null) pendingClient.stop();
+            pendingClient = null;
+            hideLobbyOverlay();
+            showMainMenu();
+        });
+        rootOverlay.getChildren().add(overlay);
+    }
+
+    private StackPane buildLobbyCard(String message, Runnable onCancel) {
+        VBox card = new VBox(16);
+        card.setMaxWidth(420);
+        card.setAlignment(Pos.CENTER);
+        card.setPadding(new Insets(32, 36, 32, 36));
+        card.setStyle(GLASS_CARD_STYLE);
+
+        Label spinner = new Label("\uD83D\uDC7B");
+        spinner.setStyle("-fx-font-size: 42px;");
+
+        Label msgLabel = new Label(message);
+        msgLabel.setWrapText(true);
+        msgLabel.setStyle("-fx-text-fill: white; -fx-font-size: 15px; -fx-font-weight: 700;");
+        msgLabel.setAlignment(Pos.CENTER);
+
+        Button cancelButton = createSecondaryButton("Cancel & Return to Menu");
+        cancelButton.setOnAction(e -> onCancel.run());
+
+        card.getChildren().addAll(spinner, msgLabel, cancelButton);
+
+        StackPane overlay = new StackPane(card);
+        overlay.setStyle("-fx-background-color: rgba(5,10,20,0.75);");
+        return overlay;
+    }
+
+    private void hideLobbyOverlay() {
+        if (rootOverlay != null) {
+            StackPane rootStack = (StackPane) scene.getRoot();
+            rootStack.getChildren().remove(rootOverlay);
+            rootOverlay = null;
+        }
+    }
+
+    private void showAlert(String message) {
+        javafx.scene.control.Alert alert = new javafx.scene.control.Alert(javafx.scene.control.Alert.AlertType.INFORMATION);
+        alert.setTitle("Chain Reaction");
+        alert.setHeaderText(null);
+        alert.setContentText(message);
+        alert.showAndWait();
+    }
+
+    private Label errorBanner;
+    private PauseTransition errorDismissTimer;
+
+    private void toastError(String msg) {
+        if (errorBanner == null) {
+            errorBanner = new Label();
+            errorBanner.setStyle(
+                "-fx-background-color: rgba(255,80,80,0.9);"
+                    + "-fx-background-radius: 14px;"
+                    + "-fx-padding: 10 18 10 18;"
+                    + "-fx-text-fill: white;"
+                    + "-fx-font-size: 13px;"
+                    + "-fx-font-weight: 700;"
+            );
+            StackPane rootStack = (StackPane) scene.getRoot();
+            rootStack.getChildren().add(errorBanner);
+            StackPane.setAlignment(errorBanner, Pos.BOTTOM_CENTER);
+            StackPane.setMargin(errorBanner, new Insets(0, 0, 80, 0));
+        }
+        errorBanner.setText(msg);
+        errorBanner.setVisible(true);
+        if (errorDismissTimer == null) {
+            errorDismissTimer = new PauseTransition(Duration.seconds(4));
+            errorDismissTimer.setOnFinished(e -> errorBanner.setVisible(false));
+        }
+        errorDismissTimer.playFromStart();
+    }
+
     private void transitionTo(Parent newRoot) {
-        Parent currentRoot = scene.getRoot();
+        StackPane rootStack = (StackPane) scene.getRoot();
+        
+        @SuppressWarnings("unchecked")
+        Parent currentRoot = (Parent) rootStack.getChildren().get(0);
         FadeTransition fadeOut = new FadeTransition(Duration.millis(120), currentRoot);
         fadeOut.setFromValue(1.0);
         fadeOut.setToValue(0.0);
         fadeOut.setOnFinished(event -> {
+            rootStack.getChildren().remove(currentRoot);
             newRoot.setOpacity(0);
-            scene.setRoot(newRoot);
+            rootStack.getChildren().add(0, newRoot);
+            StackPane.setAlignment(newRoot, Pos.CENTER);
             FadeTransition fadeIn = new FadeTransition(Duration.millis(150), newRoot);
             fadeIn.setFromValue(0.0);
             fadeIn.setToValue(1.0);
@@ -580,11 +863,14 @@ public final class AppController {
 
     private final class GameSessionView {
 
-        private final GameEngine engine;
-        private final ArrayList<PlayerProfile> players;
-        private final StackPane rootStack;
-        private final BorderPane gamePane;
-        private final BoardCellView[][] cellViews;
+        private GameEngine engine;          // non-null for local mode; null for network paths
+        private ArrayList<PlayerProfile> players;
+        private GameHost host;              // non-null for host-player mode; null otherwise
+        private GameClient client;          // non-null for joiner mode; null otherwise
+        private NetworkGameHandler handler; // set from host or client; null means local engine mode
+        private StackPane rootStack;
+        private BorderPane gamePane;
+        private BoardCellView[][] cellViews;
         private final Label turnLabel = new Label();
         private final Label moveCountLabel = new Label();
         private final Label statusLabel = new Label();
@@ -593,23 +879,62 @@ public final class AppController {
         private final GridPane boardGrid = new GridPane();
         private final Label timerLabel = new Label();
 
+        private GameSettings gameSettings;
+
         // timer update mechanism
         private javafx.animation.AnimationTimer timerDisplayUpdater;
 
         private boolean animationRunning;
         private int lastMoveRow = -1;
         private int lastMoveCol = -1;
+        private int selfPlayerId = -1;
+        private int lastKnownPlayerIndex = -1;
 
+        // Local / engine-backed constructor
         private GameSessionView(GameEngine engine, ArrayList<PlayerProfile> players) {
             this.engine = engine;
             this.players = players;
-            this.rootStack = new StackPane();
-            this.gamePane = new BorderPane();
-            this.cellViews = new BoardCellView[engine.getSettings().getRows()][engine.getSettings().getColumns()];
+            this.gameSettings = engine.getSettings();
+            buildGamePane();
+            renderSnapshot(engine.getSnapshot());
+        }
+
+        // Network host constructor: backed by an embedded GameHost (server + loopback client)
+        private GameSessionView(GameHost host, ArrayList<PlayerProfile> players) {
+            this.host = host;
+            this.handler = host;
+            this.players = players;
+            this.gameSettings = AppController.this.currentSettings;
+            this.selfPlayerId = host.getHostPlayerId();
+            buildGamePane();
+        }
+
+        // Network joiner constructor: backed by a GameClient connecting from a remote JVM
+        private GameSessionView(GameClient client, ArrayList<PlayerProfile> players) {
+            this.client = client;
+            this.handler = client;
+            this.players = players;
+            this.selfPlayerId = client.getPlayerId();
+        }
+
+        private Parent root() {
+            if (rootStack == null) {
+                buildGamePane();
+            }
+            return rootStack;
+        }
+
+        private void buildGamePane() {
+            rootStack = new StackPane();
+            rootStack.setAlignment(Pos.TOP_CENTER);
+            gamePane = new BorderPane();
+            
+            int rows = gameSettings.getRows();
+            int columns = gameSettings.getColumns();
+            cellViews = new BoardCellView[rows][columns];
 
             gamePane.setStyle(ROOT_STYLE);
             gamePane.setPadding(new Insets(28));
-
             gamePane.setTop(buildHeader());
             gamePane.setCenter(buildBoardArea());
             gamePane.setBottom(buildFooter());
@@ -621,18 +946,10 @@ public final class AppController {
             gameScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
             gameScroll.setStyle("-fx-background-color: transparent;");
             StackPane.setAlignment(gameScroll, Pos.TOP_CENTER);
-
             rootStack.getChildren().add(gameScroll);
 
-            renderSnapshot(engine.getSnapshot());
             statusLabel.setText("Select a cell that is empty or already yours.");
-            
-            // setup timer display updater
             setupTimerDisplayUpdater();
-        }
-
-        private Parent root() {
-            return rootStack;
         }
 
         private Parent buildHeader() {
@@ -641,7 +958,7 @@ public final class AppController {
             Label title = new Label("Chain Reaction");
             title.setStyle("-fx-text-fill: white; -fx-font-size: 28px; -fx-font-weight: 900;");
 
-            Label boardLabel = new Label(engine.getSettings().getBoardLabel());
+            Label boardLabel = new Label(gameSettings.getBoardLabel());
             boardLabel.setStyle(
                 "-fx-background-color: rgba(255,255,255,0.08);"
                     + "-fx-background-radius: 999px;"
@@ -691,7 +1008,7 @@ public final class AppController {
                     + "-fx-font-size: 14px;"
                     + "-fx-font-weight: 800;"
             );
-            timerLabel.setText(engine.getSettings().getTimeLimitSeconds() <= 0 ? "∞" : engine.getSettings().getTimeLimitSeconds() + "s");
+            timerLabel.setText(gameSettings.getTimeLimitSeconds() <= 0 ? "∞" : gameSettings.getTimeLimitSeconds() + "s");
 
             winnerBanner.setVisible(false);
             winnerBanner.setStyle(
@@ -722,20 +1039,20 @@ public final class AppController {
         }
 
         private Parent buildBoardArea() {
-            double cellSize = engine.getSettings().getRows() >= 15 ? 44 : 68;
+            double cellSize = gameSettings.getRows() >= 15 ? 44 : 68;
 
             boardGrid.setHgap(8);
             boardGrid.setVgap(8);
             boardGrid.setAlignment(Pos.CENTER);
             boardGrid.setPadding(new Insets(18));
 
-            for (int row = 0; row < engine.getSettings().getRows(); row++) {
-                for (int column = 0; column < engine.getSettings().getColumns(); column++) {
+            for (int row = 0; row < gameSettings.getRows(); row++) {
+                for (int column = 0; column < gameSettings.getColumns(); column++) {
                     int currentRow = row;
                     int currentColumn = column;
 
                     BoardCellView cellView = new BoardCellView(
-                        engine.criticalMass(row, column),
+                        criticalMassForCell(row, column),
                         cellSize,
                         () -> handleMove(currentRow, currentColumn)
                     );
@@ -748,6 +1065,13 @@ public final class AppController {
             boardCard.setPadding(new Insets(20));
             boardCard.setStyle(GLASS_CARD_STYLE);
             return wrapCentered(boardCard);
+        }
+
+        private int criticalMassForCell(int row, int column) {
+            int mass = 4;
+            if (row == 0 || row == gameSettings.getRows() - 1) mass--;
+            if (column == 0 || column == gameSettings.getColumns() - 1) mass--;
+            return mass;
         }
 
         private Parent buildFooter() {
@@ -770,65 +1094,78 @@ public final class AppController {
                 return;
             }
 
-            MoveResult result = engine.playMove(row, column);
-            if (!result.isAccepted()) {
-                statusLabel.setText(result.getMessage());
-                return;
-            }
-
-            lastMoveRow = row;
-            lastMoveCol = column;
-
-            animationRunning = true;
-            boardGrid.setDisable(true);
-
-            long animationStartNanos = System.nanoTime();
-
-            List<BoardSnapshot> frames = result.getAnimationFrames();
-
-            // Show the orb placement immediately
-            renderSnapshot(frames.get(0));
-
-            // If no explosion happens, finish normally
-            if (frames.size() == 1) {
-                // still pause timer briefly even for single frame animation
-                long animationEndNanos = System.nanoTime();
-                javafx.util.Duration animationDuration = javafx.util.Duration.millis((animationEndNanos - animationStartNanos) / 1_000_000);
-                pauseTimerForAnimation(animationDuration);
-                finishMove(result);
-                return;
-            }
-
-            statusLabel.setText("Orb placed. Explosion in 3 seconds...");
-
-            // Wait 0.5 seconds before resolving the explosion
-            PauseTransition delayBeforeExplosion = new PauseTransition(Duration.seconds(0.5));
-
-            delayBeforeExplosion.setOnFinished(event -> {
-                statusLabel.setText("Resolving chain reaction...");
-
-                SequentialTransition sequence = new SequentialTransition();
-
-                for (int index = 1; index < frames.size(); index++) {
-                    BoardSnapshot frame = frames.get(index);
-
-                    PauseTransition pause = new PauseTransition(Duration.millis(70));
-                    pause.setOnFinished(e -> renderSnapshot(frame));
-
-                    sequence.getChildren().add(pause);
+            if (engine != null) {
+                MoveResult result = engine.playMove(row, column);
+                if (!result.isAccepted()) {
+                    statusLabel.setText(result.getMessage());
+                    return;
                 }
 
-                sequence.setOnFinished(e -> {
+                lastMoveRow = row;
+                lastMoveCol = column;
+
+                animationRunning = true;
+                boardGrid.setDisable(true);
+
+                long animationStartNanos = System.nanoTime();
+
+                List<BoardSnapshot> frames = result.getAnimationFrames();
+
+                renderSnapshot(frames.get(0));
+
+                if (frames.size() == 1) {
                     long animationEndNanos = System.nanoTime();
                     javafx.util.Duration animationDuration =
                         javafx.util.Duration.millis((animationEndNanos - animationStartNanos) / 1_000_000);
                     pauseTimerForAnimation(animationDuration);
                     finishMove(result);
-                });
-                sequence.play();
-            });
+                    return;
+                }
 
-            delayBeforeExplosion.play();
+                statusLabel.setText("Orb placed. Explosion in 3 seconds...");
+
+                PauseTransition delayBeforeExplosion = new PauseTransition(Duration.seconds(0.5));
+
+                delayBeforeExplosion.setOnFinished(event -> {
+                    statusLabel.setText("Resolving chain reaction...");
+
+                    SequentialTransition sequence = new SequentialTransition();
+
+                    for (int index = 1; index < frames.size(); index++) {
+                        BoardSnapshot frame = frames.get(index);
+
+                        PauseTransition pause = new PauseTransition(Duration.millis(70));
+                        pause.setOnFinished(e -> renderSnapshot(frame));
+
+                        sequence.getChildren().add(pause);
+                    }
+
+                    sequence.setOnFinished(e -> {
+                        long animationEndNanos = System.nanoTime();
+                        javafx.util.Duration animationDuration =
+                            javafx.util.Duration.millis((animationEndNanos - animationStartNanos) / 1_000_000);
+                        pauseTimerForAnimation(animationDuration);
+                        finishMove(result);
+                    });
+                    sequence.play();
+                });
+
+                delayBeforeExplosion.play();
+
+            } else if (handler != null) {
+                // ── Network path ─────────────────────────────────────────────────
+                BoardSnapshot snap = handler.getLatestSnapshot();
+                if (snap == null || snap.hasWinner()) {
+                    return;
+                }
+                if (selfPlayerId < 0 || selfPlayerId != snap.getCurrentPlayerIndex()) {
+                    statusLabel.setText("Not your turn.");
+                    return;
+                }
+
+                handler.sendMove(row, column);
+                statusLabel.setText("Move sent — waiting for server confirmation…");
+            }
         }
 
         private void finishMove(MoveResult result) {
@@ -878,7 +1215,21 @@ public final class AppController {
             buttons.setAlignment(Pos.CENTER);
             Button playAgain = createPrimaryButton("Play Again");
             Button mainMenu = createSecondaryButton("Main Menu");
-            playAgain.setOnAction(event -> showGameScreen());
+            
+            playAgain.setOnAction(event -> {
+                if (handler != null) {
+                    handler.stop();
+                    if (host != null) {
+                        showNetworkHostDialog();
+                    } else {
+                        joinedSession = null;
+                        sessionStarted = false;
+                        showNetworkJoinDialog();
+                    }
+                } else {
+                    showGameScreen();
+                }
+            });
             mainMenu.setOnAction(event -> showMainMenu());
             buttons.getChildren().addAll(playAgain, mainMenu);
 
@@ -899,17 +1250,23 @@ public final class AppController {
         }
 
         private void renderSnapshot(BoardSnapshot snapshot) {
-            PlayerProfile currentPlayer = players.get(snapshot.getCurrentPlayerIndex());
+            if (cellViews == null) return;
 
-            turnLabel.setText(snapshot.hasWinner()
-                ? players.get(snapshot.getWinnerIndex().intValue()).getName() + " controls the board"
+            BoardSnapshot snap = (handler != null)
+                ? handler.getLatestSnapshot()
+                : snapshot;
+
+            PlayerProfile currentPlayer = players.get(snap.getCurrentPlayerIndex());
+
+            turnLabel.setText(snap.hasWinner()
+                ? players.get(snap.getWinnerIndex().intValue()).getName() + " controls the board"
                 : currentPlayer.getName() + " to play");
 
-            moveCountLabel.setText("Move " + snapshot.getMovesPlayed());
+            moveCountLabel.setText("Move " + snap.getMovesPlayed());
 
-            winnerBanner.setVisible(snapshot.hasWinner());
-            if (snapshot.hasWinner()) {
-                winnerBanner.setText(players.get(snapshot.getWinnerIndex().intValue()).getName() + " wins");
+            winnerBanner.setVisible(snap.hasWinner());
+            if (snap.hasWinner()) {
+                winnerBanner.setText(players.get(snap.getWinnerIndex().intValue()).getName() + " wins");
             }
 
             playerStrip.getChildren().clear();
@@ -917,19 +1274,19 @@ public final class AppController {
                 playerStrip.getChildren().add(
                     createPlayerChip(
                         players.get(playerIndex),
-                        playerIndex == snapshot.getCurrentPlayerIndex() && !snapshot.hasWinner(),
-                        snapshot.isPlayerEliminated(playerIndex),
-                        countPlayerOrbs(snapshot, playerIndex)
+                        playerIndex == snap.getCurrentPlayerIndex() && !snap.hasWinner(),
+                        snap.isPlayerEliminated(playerIndex),
+                        countPlayerOrbs(snap, playerIndex)
                     )
                 );
             }
 
-            for (int row = 0; row < snapshot.getRows(); row++) {
-                for (int column = 0; column < snapshot.getColumns(); column++) {
-                    int ownerIndex = snapshot.getOwnerIndex(row, column);
+            for (int row = 0; row < snap.getRows(); row++) {
+                for (int column = 0; column < snap.getColumns(); column++) {
+                    int ownerIndex = snap.getOwnerIndex(row, column);
                     Color ownerColor = ownerIndex >= 0 ? players.get(ownerIndex).getColor() : null;
                     cellViews[row][column].render(
-                        snapshot.getOrbCount(row, column),
+                        snap.getOrbCount(row, column),
                         ownerColor,
                         currentPlayer.getColor()
                     );
@@ -949,6 +1306,46 @@ public final class AppController {
             return count;
         }
 
+        public void renderSnapshotFromNetwork(BoardSnapshot snapshot) {
+            if (snapshotBeingRendered) return;
+            snapshotBeingRendered = true;
+            try {
+                if (lastKnownPlayerIndex < 0) {
+                    lastKnownPlayerIndex = snapshot.getCurrentPlayerIndex();
+                }
+                renderSnapshot(snapshot);
+            } finally {
+                snapshotBeingRendered = false;
+            }
+        }
+
+        private boolean snapshotBeingRendered = false;
+
+        private void rebuildBoardGridIfDimMismatch() {
+            if (cellViews == null) {
+                System.err.println("DEBUG: cellViews is NULL — calling buildBoardArea");
+                buildBoardArea();
+                return;
+            }
+            int expectedRows = gameSettings.getRows();
+            int expectedCols = gameSettings.getColumns();
+            if (cellViews.length != expectedRows || (cellViews.length > 0 && cellViews[0].length != expectedCols)) {
+                System.err.println("DEBUG: DIMENSION MISMATCH");
+                Parent newBoard = buildBoardArea();
+                gamePane.setCenter(newBoard);
+            } else {
+                // System.err.println("DEBUG: dimensions already match");
+            }
+        }
+
+        private int remoteTimerRemaining(int timeLimit) {
+            BoardSnapshot snap = handler.getLatestSnapshot();
+            if (snap == null) return timeLimit;
+            int remaining = snap.getRemainingTimeSeconds();
+            // if snapshot carries no time data (0) fall back to full limit
+            return remaining > 0 ? remaining : timeLimit;
+        }
+
         // timer display updater
         private void setupTimerDisplayUpdater() {
             // stop any existing timer updater
@@ -957,7 +1354,7 @@ public final class AppController {
             }
             
             // do not start timer updater if timer is disabled
-            if (engine.getSettings().getTimeLimitSeconds() <= 0) {
+            if (gameSettings.getTimeLimitSeconds() <= 0) {
                 return;
             }
             
@@ -977,8 +1374,24 @@ public final class AppController {
         }
         
         private void updateTimerDisplay() {
-            // show ∞ and neutral style if timer is no time limit 
-            if (engine.getSettings().getTimeLimitSeconds() <= 0) {
+            // ── network mode: re-render if a fresh snapshot arrived on the handler ──
+            if (handler != null) {
+                BoardSnapshot latest = handler.getLatestSnapshot();
+                if (latest != null) {
+                    // detect server-driven turn skip
+                    int newPlayerIndex = latest.getCurrentPlayerIndex();
+                    if (lastKnownPlayerIndex >= 0 && newPlayerIndex != lastKnownPlayerIndex
+                            && !latest.hasWinner()) {
+                        // turn changed without a local move, server skipped because of timeout
+                        statusLabel.setText("Time's up! Turn skipped.");
+                    }
+                    lastKnownPlayerIndex = newPlayerIndex;
+                    renderSnapshot(latest);
+                }
+            }
+            int timeLimit = gameSettings.getTimeLimitSeconds();
+            // show ∞ and neutral style if timer is no time limit
+            if (timeLimit <= 0) {
                 timerLabel.setText("∞");
                 timerLabel.setStyle(
                     "-fx-background-color: rgba(255,255,255,0.03);"
@@ -990,8 +1403,10 @@ public final class AppController {
                 );
                 return;
             }
-            
-            int remainingSeconds = engine.getRemainingTimeSeconds();
+
+            int remainingSeconds = (handler != null)
+                ? remoteTimerRemaining(timeLimit)
+                : engine.getRemainingTimeSeconds();
             
             // update timer display
             timerLabel.setText(remainingSeconds + "s");
@@ -1026,17 +1441,47 @@ public final class AppController {
                 );
             }
             
-            // check for timer expiration and handle turn skipping
-            if (engine.handleTimerExpiration()) {
+            // timer expiration — handled by server in network mode; local engine only
+            if (engine != null && engine.handleTimerExpiration()) {
                 statusLabel.setText("Time's up! Turn skipped.");
                 renderSnapshot(engine.getSnapshot());
             }
         }
+         
+        // Updates all game settings (player count, board size, time limit)
+        // received from the host in network mode and refreshes the display.
+        public void updateSettings(int playerCount, int rows, int columns, int timeLimitSeconds) {
+            this.gameSettings = new GameSettings(playerCount, rows, columns, timeLimitSeconds);
+            if (players.size() != playerCount) {
+                // System.err.printf("[updateSettings] players.size()=%d host.playerCount=%d — resyncing%n", players.size(), playerCount);
+                java.util.ArrayList<PlayerProfile> synced = new java.util.ArrayList<>();
+                ArrayList<PlayerProfile> master = AppController.this.allPlayers;
+                // copy existing players up to the minimum of both lists
+                int limit = Math.min(players.size(), playerCount);
+                for (int i = 0; i < limit; i++) {
+                    synced.add(players.get(i));
+                }
+                // pad or trim to exactly playerCount
+                for (int i = synced.size(); i < playerCount; i++) {
+                    int srcIdx = Math.min(i, master.size() - 1);
+                    synced.add(master.get(srcIdx));
+                }
+                players = synced;
+                // System.err.printf("[updateSettings] after synced: players.size()=%d playerCount=%d%n", players.size(), playerCount);
+            }
+            if (rootStack == null) {
+                buildGamePane();
+            } else {
+                rebuildBoardGridIfDimMismatch();
+            }
+            // Update timer display after grid is consistent
+            updateTimerDisplay();
+        }
         
         // call to pause timer during animations
         private void pauseTimerForAnimation(javafx.util.Duration duration) {
-            // only pause if timer is enabled
-            if (engine.getSettings().getTimeLimitSeconds() <= 0) {
+            // only pause if timer is enabled (local engine path only; server drives timer for network)
+            if (engine == null || engine.getSettings().getTimeLimitSeconds() <= 0) {
                 return;
             }
             // convert javafx Duration to java Duration

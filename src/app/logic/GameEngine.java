@@ -143,9 +143,6 @@ public final class GameEngine {
             return MoveResult.rejected("You can only place an orb in an empty cell or one you already control.");
         }
 
-        // reset timer at start of turn
-        startTurnTimer();
-
         int actingPlayerIndex = currentPlayerIndex;
         ArrayList<BoardSnapshot> animationFrames = new ArrayList<>();
 
@@ -196,8 +193,11 @@ public final class GameEngine {
         winnerIndex = findWinner();
         if (winnerIndex == null) {
             currentPlayerIndex = nextPlayerIndex(currentPlayerIndex);
+            // start the timer for the next player's turn
+            startTurnTimer();
         } else {
             currentPlayerIndex = winnerIndex.intValue();
+            resetTimer();
         }
 
         BoardSnapshot finalSnapshot = createSnapshot();
@@ -311,7 +311,8 @@ public final class GameEngine {
             eliminatedPlayers,
             currentPlayerIndex,
             movesPlayed,
-            winnerIndex
+            winnerIndex,
+            getRemainingTimeSeconds()
         );
     }
 }
