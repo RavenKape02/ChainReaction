@@ -1320,12 +1320,18 @@ public final class AppController {
                     lastKnownPlayerIndex = snapshot.getCurrentPlayerIndex();
                 }
                 renderSnapshot(snapshot);
+                if (snapshot.hasWinner() && !winnerOverlayShown) {
+                    winnerOverlayShown = true;
+                    boardGrid.setDisable(true);
+                    showWinnerOverlay(snapshot);
+                }
             } finally {
                 snapshotBeingRendered = false;
             }
         }
 
         private boolean snapshotBeingRendered = false;
+        private boolean winnerOverlayShown = false;
 
         private void rebuildBoardGridIfDimMismatch() {
             if (cellViews == null) {
